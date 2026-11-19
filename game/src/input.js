@@ -1,53 +1,44 @@
-// Keyboard and pointer input. Held keys give a steering direction; one-shot presses (start or
-// restart, pause) are queued as bit flags and taken once by the loop, so a press between two
-// frames is never lost and never counted twice.
-
+// Keyboard + mouse input for Solmar Bay. WASD / arrows move and drive, Shift
+// runs, E enters or steals a car, Space punches or fires, Q swaps weapon,
+// M mutes, P / Esc pauses, Enter confirms. Held keys are a live set; one-shot
+// presses are queued as flags and taken once, so a press between frames is
+// never lost or counted twice. Mouse aim: the pointer steers the player's
+// facing on foot and the shot direction.
 export const ACTION_CONFIRM = 1;
 export const ACTION_PAUSE = 2;
+export const ACTION_ENTER = 4;
+export const ACTION_ATTACK = 8;
+export const ACTION_WEAPON = 16;
+export const ACTION_MUTE = 32;
 
-const LEFT = new Set(['ArrowLeft', 'KeyA']);
-const RIGHT = new Set(['ArrowRight', 'KeyD']);
-const CONFIRM = new Set(['Space', 'Enter']);
-const PAUSE = new Set(['KeyP', 'Escape']);
-
-export function createInput(target) {
-  let left = false;
-  let right = false;
+export function createInput(canvas) {
+  const held = new Set();
   let actions = 0;
-
+  let mouseX = 0; let mouseY = 0;
+  const oneShot = new Map([
+    ['Space', ACTION_ATTACK], ['Enter', ACTION_CONFIRM], ['KeyE', ACTION_ENTER],
+    ['KeyQ', ACTION_WEAPON], ['KeyM', ACTION_MUTE], ['KeyP', ACTION_PAUSE], ['Escape', ACTION_PAUSE],
+  ]);
   window.addEventListener('keydown', (event) => {
-    if (LEFT.has(event.code)) left = true;
-    else if (RIGHT.has(event.code)) right = true;
-    else if (CONFIRM.has(event.code)) {
-      if (!event.repeat) actions |= ACTION_CONFIRM;
-    } else if (PAUSE.has(event.code)) {
-      if (!event.repeat) actions |= ACTION_PAUSE;
-    } else return;
-    event.preventDefault();
+    if (oneShot.has(event.code)) { if (!event.repeat) actions |= oneShot.get(event.code); event.preventDefault(); return; }
+    held.add(event.code);
+    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.code)) event.preventDefault();
   });
-  window.addEventListener('keyup', (event) => {
-    if (LEFT.has(event.code)) left = false;
-    else if (RIGHT.has(event.code)) right = false;
+  window.addEventListener('keyup', (event) => { held.delete(event.code); });
+  window.addEventListener('blur', () => { held.clear(); });
+  canvas.addEventListener('pointermove', (event) => { const r = canvas.getBoundingClientRect(); mouseX = event.clientX - r.left; mouseY = event.clientY - r.top; });
+  canvas.addEventListener('pointerdown', (event) => {
+    const r = canvas.getBoundingClientRect(); mouseX = event.clientX - r.left; mouseY = event.clientY - r.top;
+    actions |= ACTION_ATTACK;
   });
-  // A key released while the tab is hidden never sends keyup: let go of everything on blur.
-  window.addEventListener('blur', () => {
-    left = false;
-    right = false;
-  });
-  target.addEventListener('pointerdown', () => {
-    actions |= ACTION_CONFIRM;
-  });
-
+  function axis(neg, pos) { return (held.has(pos) ? 1 : 0) - (held.has(neg) ? 1 : 0); }
   return {
-    /** -1 for left, 1 for right, 0 for neither or both. */
-    direction() {
-      return (right ? 1 : 0) - (left ? 1 : 0);
-    },
-    /** The one-shot presses since the last call, as ACTION_* flags. */
-    takeActions() {
-      const taken = actions;
-      actions = 0;
-      return taken;
-    },
+    moveX() { return axis('ArrowLeft', 'ArrowRight') || axis('KeyA', 'KeyD'); },
+    moveY() { return axis('ArrowUp', 'ArrowDown') || axis('KeyW', 'KeyS'); },
+    driveX() { return axis('ArrowLeft', 'ArrowRight') || axis('KeyA', 'KeyD'); },
+    driveY() { return axis('ArrowUp', 'ArrowDown') || axis('KeyW', 'KeyS'); },
+    running() { return held.has('ShiftLeft') || held.has('ShiftRight'); },
+    mouse() { return { x: mouseX, y: mouseY }; },
+    takeActions() { const taken = actions; actions = 0; return taken; },
   };
 }
